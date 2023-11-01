@@ -1,0 +1,567 @@
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+from telegram import User, Update
+import re
+import requests
+from pymysql.cursors import DictCursor as SyncDictCursor
+from pymysql import connect as sync_connect
+import logging
+import mysql.connector
+from mysql.connector import Error
+import requests
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+
+
+# Configure logging
+logging.basicConfig(
+    filename='goiu_v3.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+asf = []
+BUTTON, GENDER, GENDE, GEND = range(4)
+
+
+def sync_create_con():
+    try:
+        logging.debug("Creating synchronous connection")
+        con = sync_connect(**MYSQL)
+        cur = con.cursor()
+        return con, cur
+    except Exception as e:
+        logging.exception("Error while creating synchronous connection: %s", str(e))
+        raise
+
+def sync_dict_con():
+    try:
+        logging.debug("Creating synchronous dictionary connection")
+        con = sync_connect(**MYSQL)
+        cur = con.cursor(SyncDictCursor)
+        return con, cur
+    except Exception as e:
+        logging.exception("Error while creating synchronous dictionary connection: %s", str(e))
+        raise
+
+
+
+API_URL = "https://payzocard.com/api/"
+HEADERS = {
+    "X-Access-Code": os.getenv('X-Access-Code'),
+    "Content-Type": "application/json"  # Ensuring JSON content type
+}
+
+def add_new_task(trigger_word, part_for_replace, new_text):
+    try:
+        logging.debug("Adding new task with trigger word: %s", trigger_word)
+        
+        endpoint = API_URL + "insert/tg_keyword"
+        payload = {
+            "task_id": "",  # Assuming task_id should be an empty string; adjust as needed
+            "inlude_phrase": trigger_word,
+            "part_for_replace": part_for_replace,
+            "new_text": new_text
+        }
+        
+        response = requests.post(endpoint, headers=HEADERS, json=payload)  # Using POST instead of PUT
+        response.raise_for_status()
+        
+        json_response = response.json()
+        if json_response.get("success"):  # Check the success key in the response
+            logging.debug("Task added successfully")
+        else:
+            logging.error("Failed to add task. Response: %s", response.text)
+    except Exception as e:
+        logging.exception("Error while adding new task: %s", str(e))
+        raise
+
+
+
+API_URL = "https://payzocard.com/api/"
+HEADERS = {
+    "X-Access-Code": os.getenv('X-Access-Code')
+}
+
+def get_all_tasks_from_api():
+    try:
+        logging.debug("Getting all tasks from API")
+        
+        endpoint = API_URL + "read/tg_keyword"
+        response = requests.get(endpoint, headers=HEADERS)
+        response.raise_for_status()  # Raises an exception for HTTP errors
+        
+        tasks_list = response.json()  # Assuming the API returns a JSON list of tasks
+        return tasks_list
+        
+    except Exception as e:
+        logging.exception("Error while getting all tasks from API: %s", str(e))
+        raise
+
+
+def delete_task(
+    
+
+):
+    try:
+        logging.debug("Deleting task with task_id: %s", task_id)
+        
+        con, cur = sync_create_con()
+        cur.execute("DELETE FROM telegram_keyword WHERE task_id = %s", (task_id,))
+        con.commit()
+    except Exception as e:
+        logging.exception("Error while deleting task: %s", str(e))
+        raise
+    finally:
+        con.close()
+
+
+def get_telegram_id(code):
+    try:
+        logging.debug("Getting telegram_id for code: %s", code)
+        
+        api_endpoint = "https://payzocard.com/api/read/tg_card"
+        headers = {"Content-Type": "application/json"}
+        payload = {"code": code}
+        
+        response = requests.post(api_endpoint, headers=headers, json=payload)
+        response.raise_for_status()  # Check if the request was successful
+
+        data = response.json()
+
+        if 'code' in data and 'telegram_user_id' in data:
+            return data['telegram_user_id']
+        else:
+            logging.error("Failed to get telegram_user_id from the API response.")
+            return None
+
+    except requests.RequestException as e:
+        logging.exception("Error while getting telegram_id: %s", str(e))
+        return None
+
+
+       
+def update_sql_record(code, user):
+    try:
+        # Log the beginning of the operation
+        logging.debug("Updating record via API for code: %s", code)
+
+        # Define the API endpoint and headers
+        api_endpoint = "https://payzocard.com/api/checkcodeconfig/tg_card"
+        headers = {"Content-Type": "application/json"}
+
+        # Prepare the data payload using the provided structure
+        payload = {
+            "code": code,
+            "telegram_user_id": str(user.id),   # Ensure this is a string
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "language_code": user.language_code
+        }
+
+        # Make the POST request to the API
+        response = requests.post(api_endpoint, headers=headers, json=payload)
+        
+        # Check if the request was successful
+        response.raise_for_status()
+
+        # Optional: Check the content of the response to ensure the operation was successful on the server side
+        if response.json().get("success"):
+            logging.debug("Successfully updated the record via API for code: %s", code)
+        else:
+            logging.error("Failed to update the record via API. Response: %s", response.text)
+
+    except requests.RequestException as e:
+        logging.exception("Error while updating record via API: %s", str(e))
+            
+            
+            
+
+def get_code_telegram_id():
+    try:
+        logging.debug("Getting code and telegram_user_id")
+        
+        api_endpoint = "https://payzocard.com/api/read/tg_card/all"
+        
+        response = requests.get(api_endpoint)
+        response.raise_for_status()  # Check if the request was successful
+
+        data = response.json()
+        
+        code_list = [entry.get('code') for entry in data if 'code' in entry]
+        telegram_id_list = [entry.get('telegram_user_id') for entry in data if 'telegram_user_id' in entry]
+
+        return (code_list, telegram_id_list)
+
+    except requests.RequestException as e:
+        logging.exception("Error while getting code and telegram_user_id: %s", str(e))
+        return ([], [])
+        
+       
+#Main function 
+def send_content(update, context):
+    chat_id = update.message.chat_id
+
+    
+            
+        
+def start(update, context):
+    try:
+        ref_id = update.message.text
+        ref_id = ref_id.split()
+        user = update.effective_user
+        # Get the user object from the user object
+        
+        first_name = user.first_name
+        last_name = user.last_name
+        language_code = user.language_code
+        # Access the user attributes that you want to store in your database
+        
+        if len(ref_id) > 1:
+            asf = str(ref_id[1]).strip()
+            msg = asf
+            
+            logging.debug("Start function - Received message: %s", msg)
+            
+            sql_data = get_code_telegram_id()
+            d = sql_data[0]
+            
+            if msg in d:
+                f = sql_data[1]
+                if msg in f:
+                    context.bot.send_message(chat_id=user.id,
+                                             text="User already registered with this code")
+                    return ConversationHandler.END
+                else:
+                    body = {
+                        'telegram_code': msg,
+                        'access_token': os.getenv('X-Access-Code')
+                    }
+                    response = requests.post('https://www.payzocard.com/api/activate-telegram', data=body)
+                    if response.status_code == 200:
+                        update_sql_record(msg, user)
+                        # Pass the user object instead of the user id to the update_sql_record function
+                        context.bot.send_message(chat_id=user.id,
+                                                 text="You are registered successfully for updates = {}".format(msg))
+                        return ConversationHandler.END
+                    else:
+                        context.bot.send_message(chat_id=user.id, text="Something went wrong.")
+                        return ConversationHandler.END
+            else:
+                context.bot.send_message(chat_id=user.id, text="Code not found. Please send again.")
+                return GENDER
+
+        else:
+            logging.debug("Start function - No reference ID provided")
+            
+            print(user.id)
+            # Use the user object instead of the update object to get the user id
+            context.bot.send_message(chat_id=user.id,
+                                     text="Hello! Valuable customer, Please send us Telegram Config Number. "
+                                          "To find Config Number, log in to Payzocard > My card. Then select the card, and you will see the Telegram Config Number.")
+            return GENDER
+        
+    except Exception as e:
+        logging.exception("Error in start function: %s", str(e))
+        print("Error is start function", str(e))
+        context.bot.send_message(chat_id=user.id, text="Error! Please come back later")
+        return ConversationHandler.END
+
+
+
+def admin(update, context):
+    try:
+        uv = str(update.effective_user.id)
+        allowed_ids = os.getenv("Admin_Role")
+        if uv not in allowed_ids:
+            return
+        
+        logging.debug("Admin function - Authorized admin: %s", uv)
+        
+        context.bot.send_message(chat_id=update.effective_user.id,
+                                 text="Send me keywords in the message and the phrases like:\n\n"
+                                      "authorization\n"
+                                      "To complete your@To complete your Payzocard payment\n"
+                                      "my name is hamza@my name is habib")
+        return GENDE
+    
+    except Exception as e:
+        logging.exception("Error in admin function: %s", str(e))
+
+def gende(update, context):
+    print("update.message.text is: ", update.message.text)
+    try:
+        data_list = update.message.text.split('\n')
+        word = data_list[0]
+        phrases_list = data_list[1:]
+        print("phrases_list is: ", phrases_list)
+    except Exception as e:
+        logging.exception("Error in gende function: %s", str(e))
+        context.bot.send_message(chat_id=update.effective_user.id,
+                                 text="Send me keyword in the message and the phrases like "
+                                      "this:\n\n"
+                                      "authorization\n"
+                                      "To complete your@To complete your Payzocard payment\n"
+                                      "my name is hamza@my name is habib")
+        return
+
+    for pairs_data in phrases_list:
+        print("pairs_data is : ", pairs_data)
+        add_new_task(word, pairs_data.split('@')[0], pairs_data.split('@')[1])
+
+    # TODO:This line may need changes for the message.
+    context.bot.send_message(chat_id=update.effective_user.id, text="Keyword added successfully")
+    return ConversationHandler.END
+
+def filterNumber(n):
+    if (len(n) > N):
+        return True
+    else:
+        return False
+
+def echo(update, context):
+    print('update.message.chat.type', update.message.chat.type)
+    print(update.message.text, 'update.message.text')
+
+    # If the chat type is private, don't proceed.
+    if update.message.chat.type == 'private':
+        return
+
+    # Get the task list from the API
+    task_list = get_all_tasks_from_api()
+
+    # Initialize message_test with the incoming message content
+    message_test = update.message.text
+
+    # Flag to check if any rule matched
+    rule_matched = False
+
+    # Iterate over the tasks
+    for task in task_list:
+        key = task["inlude_phrase"]
+        change_text = task["part_for_replace"]
+        change_to = task["new_text"]
+
+        # Check if both key and change_text are in the message_test
+        if key in message_test and change_text in message_test:
+            # If both are present, replace change_text with change_to
+            message_test = message_test.replace(change_text, change_to)
+            # Set the rule_matched flag to True
+            rule_matched = True
+            break  # Exit the loop once a rule has matched
+
+    # If no rule matched, exit the function and don't send the message
+    if not rule_matched:
+        return
+
+    try:
+        msg = message_test
+        sql_data = get_code_telegram_id()
+        f = sql_data[0]
+        for nam in f:
+            if nam in (None, ''):
+                continue
+            if nam in message_test:
+                rownum = f.index(nam) + 1
+                row = get_telegram_id(str(nam))
+
+                if "to number" in msg or "SMS from" in msg:
+                    x = re.findall('[0-9]+', msg)
+                    N = 10
+                    finalx = list(filter(filterNumber, x))
+                    nb = finalx[-1]
+                    c = msg.split(nb)
+                    c = c[1]
+                    msg = c
+                context.bot.send_message(chat_id=int(row), text=msg)
+    except Exception as e:
+        print("Exception is ", e)
+
+
+def removeconfig(update, context):
+    try:
+        uv = str(update.effective_user.id)
+        allowed_ids = os.getenv("Admin_Role")
+        
+        if uv not in allowed_ids:
+            return
+
+        msg = update.message.text.split("/removeconfig")[1].strip()
+        task_id = int(msg)
+
+        # Sending the POST request to the API
+        response = send_delete_request(task_id)
+     
+        if response.get('status') == 1:
+            context.bot.send_message(chat_id=update.effective_user.id, text=f"Telegram settings have been successfully reset.")
+        elif response.get('status') == 2:
+            context.bot.send_message(chat_id=update.effective_user.id, text=f"Oops! We couldn't find any settings matching that code. Try again?")
+        else:
+            context.bot.send_message(chat_id=update.effective_user.id, text=f"Error: Unexpected response.")
+
+    except Exception as e:
+        logging.exception("Error in remove function: %s", str(e))
+
+
+def send_delete_request(task_id):
+    url = "http://127.0.0.1:8000/api/delete/tg_config"
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'X-Access-Code': os.getenv('X-Access-Code')
+    }
+    
+    data = {
+        "code": str(task_id)
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    response_data = response.json()
+
+    return response_data
+
+
+def help(update, context):
+    try:
+        message = "You can get your telegram config code on> https://payzocard.com/user/my-card\n"\
+                  "After configuring, you can receive payment authentication codes on Telegram."
+        context.bot.send_photo(chat_id=update.message.chat_id, photo=open("aaw.jpg", "rb"), caption=message)
+        return
+    except Exception as e:
+        logging.exception("Error in help function: %s", str(e))
+        print(e)
+    context.bot.send_message(chat_id=update.message.chat_id, text=message)
+
+def remove(update, context):
+    try:
+        uv = str(update.effective_user.id)
+        allowed_ids = os.getenv("Admin_Role")
+        
+        if uv not in allowed_ids:
+            return
+
+        msg = update.message.text
+        msg = msg.split("/remove")
+        msg = msg[1]
+        msg = msg.strip()
+
+        task_id = int(msg)
+        delete_task(task_id)
+        context.bot.send_message(chat_id=update.effective_user.id, text=f"Task {task_id} was removed if it existed!")
+    except Exception as e:
+        logging.exception("Error in remove function: %s", str(e))
+
+def lista(update, context):
+    try:
+        uv = str(update.effective_user.id)
+        allowed_ids = os.getenv("Admin_Role")
+        
+        if uv not in allowed_ids:
+            return
+
+        tasks_list = get_all_tasks_from_api()
+        if len(tasks_list) == 0:
+            context.bot.send_message(chat_id=update.effective_user.id, text="There are no tasks!")
+            return
+
+        formatted_tasks = []
+        for task in tasks_list:
+            task_str = f"task_id: {task['task_id']}\ninclude_phrase: {task['inlude_phrase']}\npart_for_replace: {task['part_for_replace']}\nnew_text: {task['new_text']}\n"
+            formatted_tasks.append(task_str)
+
+        sd = "Following is the list of formats:\n\n" + '\n'.join(formatted_tasks)
+        context.bot.send_message(chat_id=update.effective_user.id, text=sd)
+    except Exception as e:
+        logging.exception("Error in lista function: %s", str(e))
+
+def id(update, context):
+    try:
+        context.bot.send_message(chat_id=update.message.chat_id, text=update.message.chat_id)
+    except Exception as e:
+        logging.exception("Error in id function: %s", str(e))
+
+def gender(update, context):
+    try:
+        msg = update.message.text
+        user = update.effective_user
+        # Get the user object from the update object
+        
+        username = user.username
+        if username is None: # Check if the user has a username
+            context.bot.send_message(chat_id=user.id, text="Your Telegram account is not eligible for configuration. Please set your Telegram username and try again.")
+            return ConversationHandler.END # End the conversation if no username
+        
+        first_name = user.first_name
+        last_name = user.last_name
+        language_code = user.language_code
+        # Access the user attributes that you want to store in your database
+        
+        sql_data = get_code_telegram_id()
+        code_list = sql_data[0]
+        telegram_id_list = sql_data[1]
+        
+        if msg in code_list:
+            index = code_list.index(msg)
+            print("Telegram id list of index is: ", telegram_id_list[index])
+            print("User id is: ", user.id) 
+            print(telegram_id_list[index] == user.id)
+            print(type(telegram_id_list[index]))
+            print(type(user.id))
+            if telegram_id_list[index] is None or telegram_id_list[index] == '':
+                body = {
+                    'telegram_code': msg,
+                    'access_token': os.getenv('X-Access-Code')
+                }
+                response = requests.post('https://www.payzocard.com/api/activate-telegram', data=body)
+                if response.status_code == 200:
+                    update_sql_record(msg, user)
+                    # Pass the user object instead of the user id to the update_sql_record function
+                    context.bot.send_message(chat_id=user.id,
+                                             text="You are registered successfully for updates = {}".format(msg))
+                else:
+                    context.bot.send_message(chat_id=user.id, text="Something went wrong.")
+            elif int(telegram_id_list[index]) == user.id:
+                context.bot.send_message(chat_id=user.id,
+                                         text="User already registered with this code")
+            else:
+                context.bot.send_message(chat_id=user.id, text="Code already used by another user")
+        else:
+            context.bot.send_message(chat_id=user.id, text="Code not found. Please send again.")
+        
+    except Exception as e:
+        logging.exception("Error in gender function: %s", str(e))
+        print("error in gender function", str(e))
+        context.bot.send_message(chat_id=user.id, text="Error! Please come back later")
+    
+    return ConversationHandler.END
+
+
+def main():
+    try:
+        updater = Updater(os.getenv('TOKEN'))
+        dispatcher = updater.dispatcher
+        dispatcher.add_handler(CommandHandler('list', lista))
+        dispatcher.add_handler(CommandHandler('remove', remove))
+        dispatcher.add_handler(CommandHandler('id', id))
+        dispatcher.add_handler(CommandHandler('help', help))
+        dispatcher.add_handler(CommandHandler('removeconfig', removeconfig))
+        dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, send_content))
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start), CommandHandler('admin', admin)],
+            states={
+                GENDER: [MessageHandler(Filters.text, gender)],
+                GENDE: [MessageHandler(Filters.text, gende)],
+            },
+            fallbacks=[CommandHandler('start', start)],
+            allow_reentry=True
+        )
+        dispatcher.add_handler(conv_handler)
+        dispatcher.add_handler(MessageHandler(Filters.text, echo))
+        updater.start_polling()
+        updater.idle()
+    except Exception as e:
+        logging.exception("Error in main function: %s", str(e))
+
+if __name__ == '__main__':
+    main()
