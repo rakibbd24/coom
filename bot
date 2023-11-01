@@ -8,10 +8,6 @@ import logging
 import mysql.connector
 from mysql.connector import Error
 import requests
-import os
-from dotenv import load_dotenv
-load_dotenv()
-
 
 
 # Configure logging
@@ -48,7 +44,7 @@ def sync_dict_con():
 
 API_URL = "https://payzocard.com/api/"
 HEADERS = {
-    "X-Access-Code": os.getenv('X-Access-Code'),
+    "X-Access-Code": "0D4AAB5BE71B0292AB14C8C864C7443F16AB43EA",
     "Content-Type": "application/json"  # Ensuring JSON content type
 }
 
@@ -80,7 +76,7 @@ def add_new_task(trigger_word, part_for_replace, new_text):
 
 API_URL = "https://payzocard.com/api/"
 HEADERS = {
-    "X-Access-Code": os.getenv('X-Access-Code')
+    "X-Access-Code": "0D4AAB5BE71B0292AB14C8C864C7443F16AB43EA"
 }
 
 def get_all_tasks_from_api():
@@ -99,10 +95,7 @@ def get_all_tasks_from_api():
         raise
 
 
-def delete_task(
-    
-
-):
+def delete_task(task_id):
     try:
         logging.debug("Deleting task with task_id: %s", task_id)
         
@@ -198,13 +191,8 @@ def get_code_telegram_id():
         logging.exception("Error while getting code and telegram_user_id: %s", str(e))
         return ([], [])
         
-       
-#Main function 
-def send_content(update, context):
-    chat_id = update.message.chat_id
-
-    
-            
+        
+        
         
 def start(update, context):
     try:
@@ -236,7 +224,7 @@ def start(update, context):
                 else:
                     body = {
                         'telegram_code': msg,
-                        'access_token': os.getenv('X-Access-Code')
+                        'access_token': '0D4AAB5BE71B0292AB14C8C864C7443F16AB43EA'
                     }
                     response = requests.post('https://www.payzocard.com/api/activate-telegram', data=body)
                     if response.status_code == 200:
@@ -273,8 +261,7 @@ def start(update, context):
 def admin(update, context):
     try:
         uv = str(update.effective_user.id)
-        allowed_ids = os.getenv("Admin_Role")
-        if uv not in allowed_ids:
+        if not uv == "678555352":
             return
         
         logging.debug("Admin function - Authorized admin: %s", uv)
@@ -379,49 +366,6 @@ def echo(update, context):
         print("Exception is ", e)
 
 
-def removeconfig(update, context):
-    try:
-        uv = str(update.effective_user.id)
-        allowed_ids = os.getenv("Admin_Role")
-        
-        if uv not in allowed_ids:
-            return
-
-        msg = update.message.text.split("/removeconfig")[1].strip()
-        task_id = int(msg)
-
-        # Sending the POST request to the API
-        response = send_delete_request(task_id)
-     
-        if response.get('status') == 1:
-            context.bot.send_message(chat_id=update.effective_user.id, text=f"Telegram settings have been successfully reset.")
-        elif response.get('status') == 2:
-            context.bot.send_message(chat_id=update.effective_user.id, text=f"Oops! We couldn't find any settings matching that code. Try again?")
-        else:
-            context.bot.send_message(chat_id=update.effective_user.id, text=f"Error: Unexpected response.")
-
-    except Exception as e:
-        logging.exception("Error in remove function: %s", str(e))
-
-
-def send_delete_request(task_id):
-    url = "http://127.0.0.1:8000/api/delete/tg_config"
-    
-    headers = {
-        'Content-Type': 'application/json',
-        'X-Access-Code': os.getenv('X-Access-Code')
-    }
-    
-    data = {
-        "code": str(task_id)
-    }
-
-    response = requests.post(url, headers=headers, json=data)
-    response_data = response.json()
-
-    return response_data
-
-
 def help(update, context):
     try:
         message = "You can get your telegram config code on> https://payzocard.com/user/my-card\n"\
@@ -436,9 +380,7 @@ def help(update, context):
 def remove(update, context):
     try:
         uv = str(update.effective_user.id)
-        allowed_ids = os.getenv("Admin_Role")
-        
-        if uv not in allowed_ids:
+        if uv != "678555352":
             return
 
         msg = update.message.text
@@ -455,9 +397,7 @@ def remove(update, context):
 def lista(update, context):
     try:
         uv = str(update.effective_user.id)
-        allowed_ids = os.getenv("Admin_Role")
-        
-        if uv not in allowed_ids:
+        if uv != "678555352":
             return
 
         tasks_list = get_all_tasks_from_api()
@@ -511,7 +451,7 @@ def gender(update, context):
             if telegram_id_list[index] is None or telegram_id_list[index] == '':
                 body = {
                     'telegram_code': msg,
-                    'access_token': os.getenv('X-Access-Code')
+                    'access_token': '0D4AAB5BE71B0292AB14C8C864C7443F16AB43EA'
                 }
                 response = requests.post('https://www.payzocard.com/api/activate-telegram', data=body)
                 if response.status_code == 200:
@@ -539,14 +479,12 @@ def gender(update, context):
 
 def main():
     try:
-        updater = Updater(os.getenv('TOKEN'))
+        updater = Updater("1486544509:AAGBhJvljf9Jw8o4e1FfFckyAGxSOvuPKBg")
         dispatcher = updater.dispatcher
         dispatcher.add_handler(CommandHandler('list', lista))
         dispatcher.add_handler(CommandHandler('remove', remove))
         dispatcher.add_handler(CommandHandler('id', id))
         dispatcher.add_handler(CommandHandler('help', help))
-        dispatcher.add_handler(CommandHandler('removeconfig', removeconfig))
-        dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, send_content))
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', start), CommandHandler('admin', admin)],
             states={
