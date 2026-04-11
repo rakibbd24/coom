@@ -1,0 +1,694 @@
+# Santa API Documentation
+
+## Base URL
+```
+https://santa.test/api
+```
+
+---
+
+## Authentication
+Most endpoints require Bearer token authentication in the `Authorization` header:
+```
+Authorization: Bearer {token}
+```
+
+Token can be obtained from the `/telegram/start` endpoint.
+
+---
+
+## Public Endpoints (No Auth Required)
+
+### 1. Register User / Login
+**Endpoint:** `POST /telegram/start`
+
+**Description:** Registers or updates a Telegram user and returns authentication token.
+
+**Required Fields:**
+- `telegram_id` (string, max: 64) - Unique Telegram user ID
+- `username` (nullable, string, max: 255)
+- `first_name` (nullable, string, max: 255)
+- `last_name` (nullable, string, max: 255)
+- `is_premium` (nullable, boolean)
+- `photo_url` (nullable, URL format)
+- `language_code` (nullable, string, max: 16)
+
+**Example Request:**
+```json
+{
+  "telegram_id": "1218682559",
+  "username": "kingkong",
+  "first_name": "King",
+  "last_name": "Kong",
+  "is_premium": false,
+  "photo_url": "https://example.com/photo.jpg",
+  "language_code": "en"
+}
+```
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "message": "User registered successfully",
+  "user": {
+    "id": 1,
+    "telegram_id": "1218682559",
+    "username": "kingkong",
+    "first_name": "King",
+    "last_name": "Kong",
+    "is_premium": false,
+    "language_code": "en",
+    "photo_url": "https://example.com/photo.jpg",
+    "role": "user",
+    "is_admin": false,
+    "created_at": "2026-04-11T05:04:31Z"
+  },
+  "auth_token": "153|7Y77V4MUhXWHbPjS7srUuBeN6ncGRnODYQciu6ak38b60dab",
+  "token_type": "Bearer"
+}
+```
+
+---
+
+### 2. Get All Categories
+**Endpoint:** `GET /telegram/categories`
+
+**Auth Required:** No
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Business",
+      "icon": "icon_url",
+      "product_count": 5
+    }
+  ]
+}
+```
+
+---
+
+### 3. Get Products by Category
+**Endpoint:** `GET /telegram/categories/{category_id}/products`
+
+**Auth Required:** No
+
+**Path Parameters:**
+- `category_id` (required, integer)
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "category": {
+    "id": 1,
+    "name": "Business",
+    "description": "Business products"
+  },
+  "products": [...]
+}
+```
+
+---
+
+### 4. Get All Products
+**Endpoint:** `GET /telegram/products`
+
+**Auth Required:** No
+
+**Query Parameters:**
+- `category_id` (optional, integer, must exist in categories table)
+
+**Example Request:**
+```
+GET /telegram/products?category_id=1
+```
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "total": 5,
+  "products": [...]
+}
+```
+
+---
+
+### 5. Search Products
+**Endpoint:** `GET /telegram/products/search`
+
+**Auth Required:** No
+
+**Query Parameters:**
+- `q` (optional, string) - Search query
+
+**Example Request:**
+```
+GET /telegram/products/search?q=business
+```
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "total": 2,
+  "products": [...]
+}
+```
+
+---
+
+### 6. Get Product Details
+**Endpoint:** `GET /telegram/products/{product_id}`
+
+**Auth Required:** No
+
+**Path Parameters:**
+- `product_id` (required, integer)
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "product": {...}
+}
+```
+
+---
+
+### 7. Get Featured Products
+**Endpoint:** `GET /telegram/featured`
+
+**Auth Required:** No
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "products": [...]
+}
+```
+
+---
+
+## Authenticated Endpoints (Bearer Token Required)
+
+### 8. Add Product to Cart
+**Endpoint:** `POST /telegram/cart`
+
+**Auth Required:** Yes (Bearer token)
+
+**Required Fields:**
+- `product_id` (required, integer, must exist in catalog_products)
+- Either `qty` OR `quantity` (required, integer, min: 1)
+
+**Example Request:**
+```json
+{
+  "product_id": 80,
+  "qty": 1
+}
+```
+
+**Alternative with `quantity` field:**
+```json
+{
+  "product_id": 80,
+  "quantity": 1
+}
+```
+
+**Example Response (201):**
+```json
+{
+  "success": true,
+  "message": "Product added to cart.",
+  "cart_item": {
+    "order_id": 5,
+    "product_id": 80,
+    "product_name": "SLASH BUSINESS LLC",
+    "qty": 1,
+    "unit_price": 3000,
+    "subtotal": 3000
+  }
+}
+```
+
+---
+
+### 9. Get Cart
+**Endpoint:** `GET /telegram/cart`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "cart": {
+    "order_id": 5,
+    "items": [...]
+  }
+}
+```
+
+---
+
+### 10. Remove Product from Cart
+**Endpoint:** `DELETE /telegram/cart/{product_id}`
+
+**Auth Required:** Yes (Bearer token)
+
+**Path Parameters:**
+- `product_id` (required, integer)
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "message": "Product removed from cart."
+}
+```
+
+---
+
+### 11. Create Pre-Order
+**Endpoint:** `POST /telegram/orders`
+
+**Auth Required:** Yes (Bearer token)
+
+**Required Fields:**
+- `items` (required, array of objects)
+  - `product_id` (required, integer)
+  - `qty` (required, integer, min: 1)
+
+**Example Request:**
+```json
+{
+  "items": [
+    {
+      "product_id": 80,
+      "qty": 2
+    }
+  ]
+}
+```
+
+**Example Response (201):**
+```json
+{
+  "success": true,
+  "message": "Order created successfully"
+}
+```
+
+---
+
+### 12. Get Order History
+**Endpoint:** `GET /telegram/orders`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "orders": [...]
+}
+```
+
+---
+
+### 13. Set Stock Notification
+**Endpoint:** `POST /telegram/products/{product_id}/notify-me`
+
+**Auth Required:** Yes (Bearer token)
+
+**Path Parameters:**
+- `product_id` (required, integer)
+
+**Required Fields:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "message": "Notification set successfully"
+}
+```
+
+---
+
+### 14. Cancel Stock Notification
+**Endpoint:** `DELETE /telegram/products/{product_id}/notify-me`
+
+**Auth Required:** Yes (Bearer token)
+
+**Path Parameters:**
+- `product_id` (required, integer)
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "message": "Notification cancelled"
+}
+```
+
+---
+
+### 15. Get Wallet Balance
+**Endpoint:** `GET /telegram/wallet`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "wallet": {
+    "balance": 0,
+    "currency": "USD"
+  }
+}
+```
+
+---
+
+### 16. Get Topup History
+**Endpoint:** `GET /telegram/wallet/topups`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "topups": [...]
+}
+```
+
+---
+
+### 17. Get Topup Status
+**Endpoint:** `GET /telegram/wallet/topups/{topup_id}`
+
+**Auth Required:** Yes (Bearer token)
+
+**Path Parameters:**
+- `topup_id` (required, integer)
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "topup": {...}
+}
+```
+
+---
+
+### 18. Create Mixpay Topup
+**Endpoint:** `POST /telegram/wallet/topups/mixpay`
+
+**Auth Required:** Yes (Bearer token)
+
+**Required Fields:**
+- `amount` (required, numeric, min: 0.01)
+
+**Example Request:**
+```json
+{
+  "amount": 100
+}
+```
+
+**Example Response (201):**
+```json
+{
+  "success": true,
+  "topup": {...}
+}
+```
+
+---
+
+### 19. Create Xrocket Topup
+**Endpoint:** `POST /telegram/wallet/topups/xrocket`
+
+**Auth Required:** Yes (Bearer token)
+
+**Required Fields:**
+- `amount` (required, numeric, min: 0.01)
+
+**Example Request:**
+```json
+{
+  "amount": 100
+}
+```
+
+**Example Response (201):**
+```json
+{
+  "success": true,
+  "topup": {...}
+}
+```
+
+---
+
+### 20. Checkout Order with Balance
+**Endpoint:** `POST /telegram/orders/{order_id}/checkout-balance`
+
+**Auth Required:** Yes (Bearer token)
+
+**Path Parameters:**
+- `order_id` (required, integer)
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "message": "Order checked out successfully"
+}
+```
+
+---
+
+### 21. Get POS Products
+**Endpoint:** `GET /telegram/pos/products`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "products": [...]
+}
+```
+
+---
+
+### 22. Get POS Customers
+**Endpoint:** `GET /telegram/pos/customers`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:** None
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "customers": [...]
+}
+```
+
+---
+
+### 23. Search POS Customers
+**Endpoint:** `GET /telegram/pos/customers/search`
+
+**Auth Required:** Yes (Bearer token)
+
+**Query Parameters:**
+- `q` (optional, string) - Search query
+
+**Example Request:**
+```
+GET /telegram/pos/customers/search?q=john
+```
+
+**Example Response (200):**
+```json
+{
+  "success": true,
+  "customers": [...]
+}
+```
+
+---
+
+### 24. Create POS Order
+**Endpoint:** `POST /telegram/pos/orders`
+
+**Auth Required:** Yes (Bearer token)
+
+**Required Fields:**
+- `customer_id` (required, integer, exists in customers table)
+- `items` (required, array of objects)
+  - `product_id` (required, integer)
+  - `qty` (required, integer, min: 1)
+- `payment_method` (required, string)
+
+**Example Request:**
+```json
+{
+  "customer_id": 1,
+  "items": [
+    {
+      "product_id": 80,
+      "qty": 2
+    }
+  ],
+  "payment_method": "cash"
+}
+```
+
+**Example Response (201):**
+```json
+{
+  "success": true,
+  "message": "Order created successfully"
+}
+```
+
+---
+
+## Error Responses
+
+### 401 Unauthorized
+```json
+{
+  "success": false,
+  "message": "Unauthorized. Please register via /start first."
+}
+```
+
+### 422 Validation Error
+```json
+{
+  "message": "The given data was invalid.",
+  "errors": {
+    "product_id": ["The product_id field is required."],
+    "qty": ["The qty field is required."]
+  }
+}
+```
+
+### 404 Not Found
+```json
+{
+  "message": "Not found"
+}
+```
+
+### 302 Found (Redirect)
+Usually indicates authentication failure. Ensure:
+- Bearer token is included in `Authorization` header
+- Token format: `Bearer {token}`
+- Token is valid and not expired
+
+---
+
+## Common Issues
+
+1. **402 Validation Error on `/telegram/cart`**
+   - Ensure you're sending EITHER `qty` OR `quantity` (not both)
+   - Both field names are now accepted
+
+2. **302 Redirect**
+   - Check that Bearer token is included in `Authorization` header
+   - Verify token is valid by calling `/telegram/start` first
+
+3. **401 Unauthorized**
+   - Token may be expired
+   - Re-authenticate with `/telegram/start` to get a new token
+
+---
+
+## Testing with cURL
+
+### Register/Login
+```bash
+curl -X POST "https://santa.test/api/telegram/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "telegram_id": "1218682559",
+    "username": "kingkong",
+    "first_name": "King",
+    "last_name": "Kong"
+  }'
+```
+
+### Add to Cart (with token)
+```bash
+curl -X POST "https://santa.test/api/telegram/cart" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": 80,
+    "qty": 1
+  }'
+```
+
+### Get Cart
+```bash
+curl -X GET "https://santa.test/api/telegram/cart" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+## API Response Structure
+
+All responses follow this structure:
+
+```json
+{
+  "success": true/false,
+  "message": "Optional message",
+  "data": {...} // or specific field like "user", "products", etc.
+}
+```
+
+HTTP Status Codes:
+- `200` - OK
+- `201` - Created
+- `302` - Found (Redirect - Auth issue)
+- `401` - Unauthorized
+- `404` - Not Found
+- `422` - Validation Error
+- `500` - Server Error
